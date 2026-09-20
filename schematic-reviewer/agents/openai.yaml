@@ -1,0 +1,4 @@
+interface:
+  display_name: "原理图检查专家"
+  short_description: "读数据手册审核原理图，核实外围电路、走线载流与立创元器件参数库存"
+  default_prompt: "使用 $schematic-reviewer 检查这份原理图，找出外围电路、载流走线和元器件选型问题。"
