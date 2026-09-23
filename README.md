@@ -1,12 +1,13 @@
 # -skill
 
-嘉立创EDA 原理图检查 skill（适用于 Codex）。
+用于维护 Codex 工程检查与编码规范类 skills。
 
-## 这是什么
+## 包含的 skill
 
-[schematic-reviewer](schematic-reviewer/) 是一个原理图检查与审核 skill：读芯片数据手册做逐引脚分析，检查去耦、上拉、匹配等外围电路是否缺失或参数错误，识别大电流路径并按 IPC-2221 计算走线宽度，通过立创/JLC 接口核实元器件规格（耐压、额定电流、封装）与现货库存。
+- [schematic-reviewer](schematic-reviewer/)：原理图检查与审核。读芯片数据手册做逐引脚分析，检查去耦、上拉、匹配等外围电路是否缺失或参数错误，识别大电流路径并按 IPC-2221 计算走线宽度，通过立创/JLC 接口核实元器件规格与现货库存。
+- [stm32-coding-standard](stm32-coding-standard/)：STM32 裸机、HAL/LL/CMSIS C 代码审查与重构规范。识别目标 MCU，核验官方 Datasheet、Reference Manual 和 Errata，并结合项目规范、MISRA/CERT 与硬件约束检查高风险问题。
 
-## 使用步骤（嘉立创EDA 导出网表 → Codex 检查）
+## schematic-reviewer 使用步骤（嘉立创EDA 导出网表 → Codex 检查）
 
 ### 第 1 步：在原理图界面点击导出
 
@@ -46,6 +47,10 @@
   - `scripts/lcsc_lookup.py`：立创/JLC 元器件规格与库存查询
   - `scripts/trace_width.py`：IPC-2221 走线载流计算
   - `references/`：外部 checklist 索引、立创接口用法、外围电路规则、载流速查表
+- [stm32-coding-standard/](stm32-coding-standard/) — STM32 代码规范与审查 skill
+  - `SKILL.md`：主流程、强制检查项与风险分级
+  - `agents/openai.yaml`：界面元数据
+  - `references/`：本地编码规则映射、STM32 器件资料、检查命令和审查模板
 - `docs/images/`：使用步骤操作截图
 
 ## 环境要求

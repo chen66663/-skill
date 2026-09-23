@@ -1,0 +1,6 @@
+interface:
+  display_name: "STM32 C代码规范"
+  short_description: "识别 MCU 并基于官方资料审查 STM32 C 代码"
+  default_prompt: "使用 $stm32-coding-standard 识别工程的 STM32 MCU，核验官方 Datasheet、Reference Manual 和 Errata，再审查并改进代码。"
+policy:
+  allow_implicit_invocation: true
