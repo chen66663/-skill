@@ -1,4 +1,4 @@
-# -skill
+# 嘉立创原理图检查skill（Codex）
 
 用于维护 Codex 工程检查与编码规范类 skills。
 
