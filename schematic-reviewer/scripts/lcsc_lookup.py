@@ -11,8 +11,14 @@
 '''
 
 import argparse
+import concurrent.futures
+import hashlib
 import json
+import os
 import sys
+import tempfile
+import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -30,6 +36,12 @@ USER_AGENT = (
 )
 TIMEOUT_SECONDS = 30
 MAX_LIMIT = 50
+CACHE_VERSION = 1
+DEFAULT_CACHE_TTL = 24 * 60 * 60
+DEFAULT_CACHE_PATH = (
+    Path(tempfile.gettempdir()) / 'schematic-reviewer-lcsc-cache.json'
+)
+_CACHE_LOCK = threading.Lock()
 
 
 class LookupError(Exception):
@@ -59,6 +71,85 @@ def fetch(keyword, limit):
 
     page = (data.get('data') or {}).get('componentPageInfo') or {}
     return page.get('list') or [], page.get('total') or 0
+
+
+def cache_key(keyword, limit):
+    payload = json.dumps(
+        {
+            'cache_version': CACHE_VERSION,
+            'api_url': API_URL,
+            'keyword': keyword,
+            'limit': limit,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+
+def read_cache(path):
+    source = Path(path)
+    if not source.is_file():
+        return {}
+    try:
+        data = json.loads(source.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def write_cache(path, data):
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    handle, temporary = tempfile.mkstemp(
+        prefix='%s.' % target.name,
+        suffix='.tmp',
+        dir=str(target.parent),
+    )
+    try:
+        with os.fdopen(handle, 'w', encoding='utf-8') as output:
+            json.dump(data, output, ensure_ascii=False)
+        os.replace(temporary, target)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def fetch_cached(
+    keyword,
+    limit,
+    cache_path=DEFAULT_CACHE_PATH,
+    cache_ttl=DEFAULT_CACHE_TTL,
+    use_cache=True,
+):
+    if not use_cache:
+        return fetch(keyword, limit)
+
+    key = cache_key(keyword, limit)
+    now = time.time()
+    with _CACHE_LOCK:
+        cache = read_cache(cache_path)
+        entry = cache.get(key)
+        if (
+            isinstance(entry, dict)
+            and now - float(entry.get('timestamp') or 0) <= cache_ttl
+            and isinstance(entry.get('items'), list)
+        ):
+            return entry['items'], int(entry.get('total') or 0)
+
+    items, total = fetch(keyword, limit)
+
+    with _CACHE_LOCK:
+        cache = read_cache(cache_path)
+        cache[key] = {
+            'timestamp': now,
+            'keyword': keyword,
+            'limit': limit,
+            'items': items,
+            'total': total,
+        }
+        write_cache(cache_path, cache)
+    return items, total
 
 
 def first_price(item):
@@ -153,8 +244,23 @@ def find_exact(items, target):
     return None
 
 
-def run_search(keyword, limit, in_stock_only, as_json, verbose):
-    items, total = fetch(keyword, limit)
+def run_search(
+    keyword,
+    limit,
+    in_stock_only,
+    as_json,
+    verbose,
+    cache_path,
+    cache_ttl,
+    use_cache,
+):
+    items, total = fetch_cached(
+        keyword,
+        limit,
+        cache_path=cache_path,
+        cache_ttl=cache_ttl,
+        use_cache=use_cache,
+    )
     if in_stock_only:
         items = [item for item in items if (item.get('stockCount') or 0) > 0]
     if as_json:
@@ -174,8 +280,14 @@ def run_search(keyword, limit, in_stock_only, as_json, verbose):
     return 0
 
 
-def run_get(code, as_json, verbose):
-    items, _ = fetch(code, MAX_LIMIT)
+def run_get(code, as_json, verbose, cache_path, cache_ttl, use_cache):
+    items, _ = fetch_cached(
+        code,
+        MAX_LIMIT,
+        cache_path=cache_path,
+        cache_ttl=cache_ttl,
+        use_cache=use_cache,
+    )
     match = find_exact(items, code)
     if match is None:
         if as_json:
@@ -205,7 +317,36 @@ def pad(text, width):
     return text + ' ' * max(0, width - display_width(text))
 
 
-def run_bom(path, as_json, limit):
+def lookup_target(target, limit, cache_path, cache_ttl, use_cache):
+    try:
+        items, _ = fetch_cached(
+            target,
+            limit,
+            cache_path=cache_path,
+            cache_ttl=cache_ttl,
+            use_cache=use_cache,
+        )
+    except LookupError as error:
+        return {
+            'mpn': target,
+            'item': None,
+            'exact': False,
+            'error': str(error),
+        }
+
+    match = find_exact(items, target)
+    exact = match is not None
+    if match is None and items:
+        match = items[0]
+    return {
+        'mpn': target,
+        'item': match,
+        'exact': exact,
+        'error': None,
+    }
+
+
+def run_bom(path, as_json, limit, jobs, cache_path, cache_ttl, use_cache):
     source = Path(path)
     if not source.is_file():
         print('找不到 BOM 文件: %s' % source)
@@ -220,20 +361,26 @@ def run_bom(path, as_json, limit):
         print('BOM 文件里没有可用型号（每行一个型号，# 开头为注释）')
         return 1
 
-    rows = []
-    failures = []
-    for target in targets:
-        try:
-            items, _ = fetch(target, limit)
-        except LookupError as error:
-            failures.append('%s: %s' % (target, error))
-            rows.append({'mpn': target, 'item': None, 'exact': False})
-            continue
-        match = find_exact(items, target)
-        exact = match is not None
-        if match is None and items:
-            match = items[0]
-        rows.append({'mpn': target, 'item': match, 'exact': exact})
+    unique_targets = list(dict.fromkeys(targets))
+    worker_count = max(1, min(jobs, len(unique_targets)))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
+        results = list(pool.map(
+            lambda target: lookup_target(
+                target,
+                limit,
+                cache_path,
+                cache_ttl,
+                use_cache,
+            ),
+            unique_targets,
+        ))
+    result_by_target = {row['mpn']: row for row in results}
+    rows = [result_by_target[target] for target in targets]
+    failures = [
+        '%s: %s' % (row['mpn'], row['error'])
+        for row in results
+        if row['error']
+    ]
 
     if as_json:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
@@ -280,6 +427,25 @@ def run_bom(path, as_json, limit):
     return 0 if not failures else 1
 
 
+def add_cache_arguments(parser):
+    parser.add_argument(
+        '--no-cache',
+        action='store_true',
+        help='忽略本地缓存并重新请求接口',
+    )
+    parser.add_argument(
+        '--cache-ttl',
+        type=int,
+        default=DEFAULT_CACHE_TTL,
+        help='缓存有效期（秒），默认 86400',
+    )
+    parser.add_argument(
+        '--cache-file',
+        default=str(DEFAULT_CACHE_PATH),
+        help='缓存文件路径，默认写入系统临时目录',
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='查询立创/JLC 元器件的库存、价格、封装与规格参数',
@@ -290,6 +456,7 @@ def main():
     get_parser.add_argument('code', help='立创编号，如 C8734')
     get_parser.add_argument('--json', action='store_true', dest='as_json')
     get_parser.add_argument('--brief', action='store_true', help='只显示库存与价格')
+    add_cache_arguments(get_parser)
 
     search_parser = subparsers.add_parser('search', help='按型号或参数关键词搜索')
     search_parser.add_argument('keyword')
@@ -299,22 +466,42 @@ def main():
     )
     search_parser.add_argument('--json', action='store_true', dest='as_json')
     search_parser.add_argument('--brief', action='store_true', help='只显示库存与价格')
+    add_cache_arguments(search_parser)
 
     bom_parser = subparsers.add_parser('bom', help='批量核对 BOM，每行一个型号')
     bom_parser.add_argument('path')
     bom_parser.add_argument('--limit', type=int, default=20, help='每个型号的候选条数')
+    bom_parser.add_argument('--jobs', type=int, default=6, help='并发查询数，默认 6')
     bom_parser.add_argument('--json', action='store_true', dest='as_json')
+    add_cache_arguments(bom_parser)
 
     args = parser.parse_args()
     try:
+        cache_options = {
+            'cache_path': args.cache_file,
+            'cache_ttl': args.cache_ttl,
+            'use_cache': not args.no_cache,
+        }
         if args.command == 'get':
-            return run_get(args.code, args.as_json, verbose=not args.brief)
+            return run_get(
+                args.code,
+                args.as_json,
+                verbose=not args.brief,
+                **cache_options
+            )
         if args.command == 'search':
             return run_search(
                 args.keyword, args.limit, args.in_stock, args.as_json,
                 verbose=not args.brief,
+                **cache_options
             )
-        return run_bom(args.path, args.as_json, args.limit)
+        return run_bom(
+            args.path,
+            args.as_json,
+            args.limit,
+            args.jobs,
+            **cache_options
+        )
     except LookupError as error:
         print('查询失败: %s' % error)
         return 1

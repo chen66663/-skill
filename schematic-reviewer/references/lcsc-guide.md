@@ -10,13 +10,15 @@
 python scripts/lcsc_lookup.py get C8734
 python scripts/lcsc_lookup.py search "STM32F103C8T6" --limit 5
 python scripts/lcsc_lookup.py search "0603 100nF 50V X7R" --in-stock
-python scripts/lcsc_lookup.py bom mpn_list.txt
+python scripts/lcsc_lookup.py bom mpn_list.txt --jobs 6
 ```
 
 - `get <C编号>`：按立创编号精确查询，用于已知编号的复核。
 - `search <关键词>`：关键词可以是型号，也可以是参数组合（`0603 100nF 50V X7R`、`SOT-23 N-MOS 30V`）。
-- `bom <文件>`：批量核对，每行一个型号，`#` 开头为注释；无现货或查不到的会单独列出来。
+- `bom <文件>`：按型号去重后并发批量核对，每行一个型号，`#` 开头为注释；无现货或查不到的会单独列出来。
 - 加 `--json` 输出原始结构，`--brief` 只显示库存与价格。
+- 查询结果默认缓存 24 小时；`--no-cache` 强制刷新，`--cache-ttl` 调整有效期，`--cache-file` 指定缓存文件。
+- 嘉立创 EDA/BOM 导出可直接使用 `review_export.py`，一次完成解析、去重、查询和问题筛选，不必手工生成型号清单。
 
 ## 二、直接调用接口（脚本不适用时）
 

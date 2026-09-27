@@ -5,9 +5,8 @@ description: >-
   标注大电流路径并给出 PCB 走线加宽建议，通过立创/JLC 接口核实元器件规格（耐压、额定电流、封装）
   与现货库存。适用于原理图审核、电路设计自检、元器件选型验证、BOM 参数核对、PCB 布线前载流检查。
   触发词：检查原理图、审核电路、原理图有没有问题、元器件选型、立创选型、走线加宽、载流、外围电路、
-  引脚功能、数据手册、BOM 核对。不适用于 PCB 布局的 DRC/阻抗检查、电路仿真、固件代码审查，
+  引脚功能、数据手册、BOM 核对、嘉立创EDA网表导出、BOM导出、.tel 网表、$PACKAGES、$NETS。不适用于 PCB 布局的 DRC/阻抗检查、电路仿真、固件代码审查，
   也不检查铜柱、螺柱、螺钉、螺母、垫片等机械结构件。
-argument-hint: "[full|pins|peripheral|trace|bom] [原理图文件或电路描述]"
 ---
 
 # 原理图检查专家
@@ -28,6 +27,9 @@ argument-hint: "[full|pins|peripheral|trace|bom] [原理图文件或电路描述
 | 读原理图图片（PNG/JPG） | 直接查看图片文件，逐模块识别器件 |
 | 读原理图 PDF | `pdf` skill（转图片识别，或提取文字与网表） |
 | 读数据手册 PDF | `pdf` skill；下载后先确认文件头是 `%PDF-` |
+| 快速预检嘉立创 EDA/BOM 导出 | `scripts/review_export.py`（解析、去重、并发、缓存、问题筛选） |
+| 解析 BOM 卡片、CSV/TSV 元件表 | `scripts/parse_schematic_export.py`（需要原始清单或自定义输出时使用；自动识别多行卡片、同行位号和表头表格） |
+| 解析 .tel 原理图网表 | `scripts/parse_tel_netlist.py`（含 $PACKAGES 与 $NETS 时使用） |
 | 元器件规格与库存 | `scripts/lcsc_lookup.py`（见下） |
 | 载流计算 | `scripts/trace_width.py`（见下） |
 | 抓数据手册 / checklist | shell 里用 `curl` 或 `Invoke-WebRequest` 抓取 |
@@ -35,19 +37,89 @@ argument-hint: "[full|pins|peripheral|trace|bom] [原理图文件或电路描述
 > 本环境**没有浏览器自动化工具**，也没有 PDF 之外的专用阅读技能。立创商城网页是 JS 单页应用，
 > 直接抓 HTML 拿不到商品数据，元器件信息一律走接口。
 
+## 导出预检与解析
+
+当输入是 BOM 卡片或带表头的 CSV/TSV 元件表时，**第一步直接运行快速预检**，不要逐行人眼拼接，也不要逐颗器件手工查询。解析器同时支持：
+
+- 多行卡片：`封装 ! 型号+属性 ! 参数 ,`，下一行 `; 位号`。
+- 同行卡片：`封装 ! 型号+属性 ! 参数 ; 位号`。
+- CSV/TSV：至少包含位号列，以及型号/参数/封装中的一种；常见表头见 [references/eda-export-format.md](references/eda-export-format.md)。
+
+```text
+C0402 ! CC0402JRNPO9BN470容值:47pF;精度:±5%;额定电压:50V ! 47pF ,
+        ; CC3
+,
+```
+
+```bash
+python scripts/review_export.py export.txt --jobs 6
+python scripts/review_export.py export.txt --verbose
+python scripts/review_export.py export.txt --json
+```
+
+预检会在一条命令内完成：
+
+- 解析导出记录，汇总位号并按型号去重。
+- 并发查询立创/JLC，默认 6 路并发、缓存 24 小时。
+- 只输出需要处理的项目：解析告警、型号未精确匹配、无现货、封装冲突、参数冲突或关键参数无法核实。
+- 已经自动核验通过的型号默认不输出内容，减少阅读和后续手工查询。
+
+缓存与并发可按需调整：
+
+```bash
+python scripts/review_export.py export.txt --no-cache
+python scripts/review_export.py export.txt --cache-ttl 3600 --jobs 8
+python scripts/review_export.py export.txt --cache-file .review-cache.json
+```
+
+需要原始规范化清单时，再单独调用解析器：
+
+```bash
+python scripts/parse_schematic_export.py export.txt
+python scripts/parse_schematic_export.py export.txt --format json
+python scripts/parse_schematic_export.py export.txt --format lcsc
+```
+
+- 默认输出 `位号 | 封装 | 型号 | 参数值 | 关键属性 | 数据手册` 的 TSV。
+- `--format json` 保留原始行号、解析告警和全部属性。
+- `--format lcsc` 输出去重后的型号列表，可交给 `lcsc_lookup.py bom` 批量核实库存。
+- 预检输出、格式细节、字段含义和证据边界见 [references/eda-export-format.md](references/eda-export-format.md)。
+
+## .tel 网表
+
+输入含 `$PACKAGES` 和 `$NETS`，或文件扩展名是 `.tel` 时，第一步运行：
+
+```bash
+python scripts/parse_tel_netlist.py netlist.tel
+python scripts/parse_tel_netlist.py netlist.tel --pins U22
+python scripts/parse_tel_netlist.py netlist.tel --net NRST
+python scripts/parse_tel_netlist.py netlist.tel --format json
+```
+
+- `REF.PIN` 是连接证据：`U22.25` 表示位号 U22 的第 25 脚属于该网络。- 不假设 `$PACKAGES`、`$NETS`、`$COMPONENTS`、`$NETWORKS` 等段落的出现顺序；先扫描全部 section，再按别名归类。
+- 不假设器件种类固定；先以网表实际出现的封装、型号、位号和引脚连接为准，未知类别只报告可证明的拓扑问题。
+- 连线检查分两层：重复引脚、同一引脚跨两个网络、网络引用未定义位号属于解析错误；同一器件多个引脚出现在同一网络、重复网络段、单引脚网络属于“连线待确认项”，必须结合器件数据手册和引脚功能判断，不能直接判定短路。
+- 先用 `--pins <位号>` 取 IC 引脚网络，再对照数据手册；不要把自动网络名（如 `$1N14`）当成信号功能。
+- 解析告警（未连接电气位号、同一网络重复引脚、单引脚网络、未定义位号）直接作为问题列出；已识别的机械/定位件（如 Harwin 间隔柱、`TP`、`FID`、`MH`）不按未连接电气位号告警。
+- 这种网表没有封装内的引脚名，也没有坐标，不能据此判断去耦是否靠近引脚或走线宽度。
+- 器件型号和库存仍按第 5 步核实；`parse_schematic_export.py` 检测到 `$PACKAGES/$NETS` 时会明确拒绝并提示改用本解析器。
+
+**关键边界**：如果导出内容只有封装、型号、参数和位号，没有明确的网络名与引脚连接，就不能据此断言去耦是否接到具体 VDD 引脚、上拉是否接到目标信号、UART 是否交叉或晶振网络是否正确。此时只能检查器件级参数、型号库存、封装、类别与明显缺失，并明确列出需要补网表或原理图才能完成的检查项。
+
 ## 元器件核实：立创/JLC 接口
 
 ```bash
 python scripts/lcsc_lookup.py get C8734
 python scripts/lcsc_lookup.py search "0603 100nF 50V X7R" --in-stock
 python scripts/lcsc_lookup.py search "SOT-23 N-MOS 30V" --limit 5
-python scripts/lcsc_lookup.py bom mpn_list.txt
+python scripts/lcsc_lookup.py bom mpn_list.txt --jobs 6
 ```
 
 脚本返回：立创编号、品牌、型号、封装、现货库存、阶梯价、`attributes` 规格参数、手册链接、商品页。
 
 - 关键词既可以是型号，也可以是参数组合（`0603 100nF 50V X7R`），后者用于选型和找替代料。
 - 与立创商城同源，数据即立创商品库，满足"以立创为准"的要求。
+- `bom` 会按型号去重后并发查询；查询结果默认缓存 24 小时，卡片类导出优先直接使用 `review_export.py`。
 - 接口、字段与注意事项详见 [references/lcsc-guide.md](references/lcsc-guide.md)。
   其中记录了必须避开的坑：不要传 `componentLibraryType: "base"`，按 C 编号搜索必须精确比对 `componentCode`。
 - 脚本不可用时，直接 POST `https://jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/selectSmtComponentList`，body 为 `{"currentPage":1,"pageSize":20,"keyword":"<关键词>"}`。
@@ -68,9 +140,10 @@ python scripts/lcsc_lookup.py bom mpn_list.txt
 
 ### 第 1 步：输入解析与器件清单
 
-输入可能是原理图图片、原理图 PDF、网表/文本描述，或口头描述的电路。
+输入可能是原理图图片、原理图 PDF、网表/文本描述，或口头描述的电路。输入含 `$PACKAGES` 和 `$NETS` 时，第一步运行 `scripts/parse_tel_netlist.py`，用它的引脚网络作为连接证据。遇到 BOM 卡片（同行或换行位号均可）或带表头的 CSV/TSV 元件表时，第一步运行 `scripts/review_export.py` 完成解析、去重、批量核验和问题筛选；只有需要原始清单或自定义格式时才再调用 `scripts/parse_schematic_export.py`。
 
 - 输出器件清单：`位号 | 型号 | 功能模块 | 关键引脚连接`
+- 先从原始证据中区分“器件参数列表”和“网络连接列表”。只有器件参数而没有网络连接时，关键引脚连接不得猜测。
 - 原理图模糊或型号无法辨认时，先列出可识别部分，明确告知用户哪些需要补充，**不要猜型号**。
 - 用户只给了电路描述而没给图时，先问清输入形式，并索要关键芯片型号，不要凭空假设电路。
 
@@ -101,6 +174,8 @@ python scripts/lcsc_lookup.py bom mpn_list.txt
 - **功率路径**：输入是否有反接保护、TVS、保险丝；LDO/DCDC 输入输出电容与反馈电阻；DCDC 电感饱和电流；感性负载续流二极管
 - **ESD 与保护**：对外连接器是否有 ESD/TVS；TVS 钳位电压是否低于后级绝对最大额定值；高速信号 ESD 器件电容是否足够低
 
+如果输入只有元件清单，上述项目按证据能力拆开：元件值、耐压、精度、温度系数、封装、库存可以检查；具体去耦位置、引脚上下拉、接口交叉和网络拓扑必须等原理图或带网络连接的网表补齐后再检查。导出记录缺少精度或耐压时，只报告“信息待确认”，不要直接判错。
+
 产出：问题清单，每条包含位号/引脚、问题描述、依据、修改建议、严重程度。
 
 ### 第 4 步：载流路径分析与走线加宽
@@ -115,9 +190,9 @@ python scripts/lcsc_lookup.py bom mpn_list.txt
 
 ### 第 5 步：元器件选型核实
 
-对每个关键元器件核实规格与库存，必须核实的参数见 [references/lcsc-guide.md](references/lcsc-guide.md) 第三节。
+预检已自动核验通过的普通无源器件不再逐件重复查询。对预检告警项、IC、电源和接口继续核实规格与库存，必须核实的参数见 [references/lcsc-guide.md](references/lcsc-guide.md) 第三节。
 
-- 用 `scripts/lcsc_lookup.py` 查询，或整份 BOM 用 `bom` 子命令批量核对。
+- 优先使用 `review_export.py`；没有导出格式或需要单独补充查询时，再用 `scripts/lcsc_lookup.py`。
 - 库存为 0 的器件必须标注，并给出至少 1 个有现货的替代型号。
 - 参数以接口返回为准；接口参数与数据手册冲突时以数据手册为准，并指出冲突。
 
@@ -160,3 +235,5 @@ python scripts/lcsc_lookup.py bom mpn_list.txt
 6. 用户未提供原理图文件时，先询问输入形式，不要凭空假设电路。
 7. 载流计算默认 1oz 铜厚；用户指定其它铜厚时按比例换算并注明假设。
 8. 不将铜柱、螺柱、螺钉、螺母、垫片等机械结构件作为原理图电气问题、BOM 缺货问题或替代选型问题报告。
+9. 解析嘉立创 EDA/BOM 导出时先运行 `scripts/review_export.py` 做一次批量预检；不得逐件重复查询已通过型号，也不得把仅含器件参数的导出误当成包含网络连接的完整网表。
+10. 解析含 `$PACKAGES` 与 `$NETS` 的 `.tel` 网表时先运行 `scripts/parse_tel_netlist.py`；引脚连接只以 `REF.PIN` 记录为准。
