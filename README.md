@@ -5,7 +5,6 @@
 ## 包含的 skill
 
 - [schematic-reviewer](schematic-reviewer/)：原理图检查与审核。读芯片数据手册做逐引脚分析，检查去耦、上拉、匹配等外围电路是否缺失或参数错误，识别大电流路径并按 IPC-2221 计算走线宽度，通过立创/JLC 接口核实元器件规格与现货库存。
-- [stm32-coding-standard](stm32-coding-standard/)：STM32 裸机、HAL/LL/CMSIS C 代码审查与重构规范。识别目标 MCU，核验官方 Datasheet、Reference Manual 和 Errata，并结合项目规范、MISRA/CERT 与硬件约束检查高风险问题。
 
 ## schematic-reviewer 使用步骤（嘉立创EDA 导出网表 → Codex 检查）
 
