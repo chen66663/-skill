@@ -44,12 +44,33 @@ NET1 ; R1.1 R1.1
 """
 
         netlist = parse_text(text)
-        messages = "\n".join(netlist.warnings)
+        messages = "\n".join(netlist.warnings + netlist.connectivity_findings)
 
         self.assertIn("引脚 `R1.1` 在网络 `NET1` 内重复出现", messages)
         self.assertIn("位号 `R2`", messages)
         self.assertIn("只有 1 个有效引脚", messages)
 
+    def test_preserves_value_and_datasheet_placeholder_states(self):
+        text = """$PACKAGES
+H7 ! xxx32F4VxxT6{Datasheet} ! '{Value}' ; U1
+R0603 ! Res_0603{Datasheet} ! 10K ; R1
+$NETS
+NET1 ; U1.1 R1.1
+"""
+
+        netlist = parse_text(text)
+
+        first = netlist.packages[0]
+        second = netlist.packages[1]
+        self.assertEqual("xxx32F4VxxT6", first.part_number)
+        self.assertEqual("", first.value)
+        self.assertEqual("placeholder", first.value_status)
+        self.assertEqual("placeholder", first.datasheet_status)
+        self.assertEqual(["Datasheet", "Value"], first.placeholder_fields)
+        self.assertEqual("Res_0603", second.part_number)
+        self.assertEqual("10K", second.value)
+        self.assertEqual("placeholder", second.datasheet_status)
+        self.assertEqual("literal", second.value_status)
     def test_does_not_treat_mechanical_parts_as_unconnected_electrical_parts(self):
         text = """$PACKAGES
 SMD_BD5.0-D3.0 ! R30-1000602-Harwin ! '{Value}' ; U10

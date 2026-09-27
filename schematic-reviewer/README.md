@@ -55,6 +55,14 @@ python scripts/parse_tel_netlist.py netlist.tel
 python scripts/parse_tel_netlist.py netlist.tel --pins U1
 python scripts/parse_tel_netlist.py netlist.tel --net NRST
 `.tel` 解析不依赖固定排列顺序：会扫描并识别 `$PACKAGES`/`$COMPONENTS`、`$NETS`/`$NETWORKS` 等别名，支持字母数字混合引脚号（如 `U1.A1`）。除解析告警外，输出还包含 `connectivity_findings`，用于列出重复网络段、同器件多引脚连写等需要结合数据手册确认的拓扑事项。
+解析结果还会保留器件字段状态：
+
+- `value_status=literal`：Value 是实际值，可用于参数核对。
+- `value_status=placeholder`：Value 是 `{Value}`，只能说明原理图库没有展开 Value。
+- `datasheet_status=url`：型号记录中包含可追踪 URL。
+- `datasheet_status=placeholder`：存在 `{Datasheet}`，但需要继续从型号、厂商或 LCSC 信息补齐手册。
+
+这些状态会出现在 JSON 的 `packages` 记录中，摘要中也会给出占位字段计数；占位符本身不作为解析失败。
 
 # 元器件核实
 python scripts/lcsc_lookup.py get C8734

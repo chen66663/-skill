@@ -63,6 +63,10 @@ class PackageRecord:
     value: str
     designators: List[str]
     source_line: int
+    datasheet_urls: List[str] = field(default_factory=list)
+    placeholder_fields: List[str] = field(default_factory=list)
+    value_status: str = "literal"
+    datasheet_status: str = "missing"
 
 
 @dataclass
@@ -96,20 +100,55 @@ class Netlist:
         return result
 
 
+PLACEHOLDER_RE = re.compile(r"\{(?P<name>[^{}]+)\}")
+URL_RE = re.compile(r"https?://[^\s,;]+", re.IGNORECASE)
+
+
 def clean_token(value: str) -> str:
     return value.strip().strip("'\"")
 
 
-def split_value_and_designators(text: str) -> Tuple[str, List[str]]:
+def extract_placeholders(text: str) -> List[str]:
+    return [match.group("name").strip() for match in PLACEHOLDER_RE.finditer(text)]
+
+
+def strip_placeholders(text: str) -> str:
+    return clean_token(PLACEHOLDER_RE.sub("", text)).strip()
+
+
+def classify_value(text: str) -> Tuple[str, str]:
+    cleaned = clean_token(text)
+    placeholders = [name.lower() for name in extract_placeholders(cleaned)]
+    literal = strip_placeholders(cleaned)
+    if "value" in placeholders and not literal:
+        return "", "placeholder"
+    if not literal:
+        return "", "missing"
+    return literal, "literal"
+
+
+def split_value_and_designators(text: str) -> Tuple[str, List[str], str]:
     if ";" not in text:
-        return clean_token(text), []
+        value, status = classify_value(text)
+        return value, [], status
     value, references = text.split(";", 1)
+    value, status = classify_value(value)
     designators = [
         token
         for token in DESIGNATOR_RE.findall(references)
         if token.lower() != "value"
     ]
-    return clean_token(value), designators
+    return value, designators, status
+
+
+def classify_datasheet(text: str) -> Tuple[List[str], str]:
+    urls = URL_RE.findall(text)
+    placeholders = [name.lower() for name in extract_placeholders(text)]
+    if urls:
+        return urls, "url"
+    if "datasheet" in placeholders:
+        return [], "placeholder"
+    return [], "missing"
 
 
 def is_non_electrical_package(package: PackageRecord) -> bool:
@@ -129,26 +168,39 @@ def parse_packages(lines: Sequence[Tuple[int, str]], warnings: List[str]) -> Lis
     current_line = 0
 
     def finish() -> None:
+        nonlocal current_parts
         if not current_parts:
+            return
+        if all(part.strip() == "," for part in current_parts):
+            current_parts = []
             return
         joined = " ".join(current_parts)
         match = PACKAGE_RE.match(joined)
         if not match:
             warnings.append("第 %s 行：$PACKAGES 记录无法解析" % current_line)
             return
-        value, designators = split_value_and_designators(match.group("rest"))
+        raw_part = match.group("part").strip()
+        value, designators, value_status = split_value_and_designators(match.group("rest"))
+        datasheet_urls, datasheet_status = classify_datasheet(raw_part)
+        placeholder_fields = extract_placeholders(raw_part + " " + match.group("rest"))
         record = PackageRecord(
             footprint=match.group("footprint").strip(),
-            part_number=match.group("part").strip(),
+            part_number=strip_placeholders(raw_part),
             value=value,
             designators=designators,
             source_line=current_line,
+            datasheet_urls=datasheet_urls,
+            placeholder_fields=placeholder_fields,
+            value_status=value_status,
+            datasheet_status=datasheet_status,
         )
         records.append(record)
         if not record.designators:
             warnings.append("第 %s 行：器件 `%s` 缺少位号" % (current_line, record.part_number))
 
     for line_number, line in lines:
+        if line.strip() == ",":
+            continue
         # A package record starts when the line contains all three card fields.
         # Do not require a specific indentation: JLC/EasyEDA exports vary.
         if line.count("!") >= 2:
@@ -162,7 +214,7 @@ def parse_packages(lines: Sequence[Tuple[int, str]], warnings: List[str]) -> Lis
     finish()
     return records
 
-def parse_nets(lines: Sequence[Tuple[int, str]], warnings: List[str]) -> List[NetRecord]:
+def parse_nets(lines: Sequence[Tuple[int, str]], warnings: List[str], findings: List[str]) -> List[NetRecord]:
     nets: List[NetRecord] = []
     current_name = ""
     current_line = 0
@@ -182,7 +234,7 @@ def parse_nets(lines: Sequence[Tuple[int, str]], warnings: List[str]) -> List[Ne
             warnings.append("第 %s 行：网络 `%s` 含无法识别的引脚 `%s`" % (current_line, current_name, leftover))
         unique_pin_count = len({(pin.designator, pin.pin) for pin in pins})
         if unique_pin_count < 2:
-            warnings.append(
+            findings.append(
                 "第 %s 行：网络 `%s` 只有 %s 个有效引脚"
                 % (current_line, current_name, unique_pin_count)
             )
@@ -190,7 +242,7 @@ def parse_nets(lines: Sequence[Tuple[int, str]], warnings: List[str]) -> List[Ne
 
     for line_number, line in lines:
         stripped = line.strip()
-        if not stripped:
+        if not stripped or stripped == ",":
             continue
         if line[:1].isspace():
             if current_name:
@@ -341,10 +393,10 @@ def parse_text(text: str) -> Netlist:
     for name in package_sections:
         packages.extend(parse_packages(sections.get(name, []), warnings))
 
+    connectivity_findings: List[str] = []
     nets: List[NetRecord] = []
     for name in net_sections:
-        nets.extend(parse_nets(sections.get(name, []), warnings))
-    connectivity_findings: List[str] = []
+        nets.extend(parse_nets(sections.get(name, []), warnings, connectivity_findings))
     nets = merge_nets(nets, connectivity_findings)
 
     netlist = Netlist(packages, nets, warnings, connectivity_findings)
@@ -366,6 +418,12 @@ def print_summary(netlist: Netlist) -> None:
     print("nets\t%s" % len(netlist.nets))
     print("pins\t%s" % pin_count)
     print("warnings\t%s" % len(netlist.warnings))
+    placeholder_count = sum(1 for item in netlist.packages if item.placeholder_fields)
+    value_placeholder_count = sum(1 for item in netlist.packages if item.value_status == "placeholder")
+    datasheet_placeholder_count = sum(1 for item in netlist.packages if item.datasheet_status == "placeholder")
+    print("placeholder_records\t%s" % placeholder_count)
+    print("value_placeholders\t%s" % value_placeholder_count)
+    print("datasheet_placeholders\t%s" % datasheet_placeholder_count)
     print("connectivity_findings\t%s" % len(netlist.connectivity_findings))
     for warning in netlist.warnings:
         print(warning)
