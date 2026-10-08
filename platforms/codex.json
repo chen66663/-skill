@@ -1,0 +1,12 @@
+{
+  "name": "codex",
+  "display_name": "Codex",
+  "install_dir": "~/.codex/skills",
+  "vars": {
+    "PY": "python"
+  },
+  "patterns": {
+    "script": ["scripts/", ""]
+  },
+  "overlay": "overlay"
+}

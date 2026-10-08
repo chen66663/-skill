@@ -1,5 +1,10 @@
 # 嘉立创 EDA / BOM 导出格式
 
+<!-- @if workbuddy -->
+> 下文所有命令里的 `$PY` 与 `$SK` 定义在 SKILL.md 的「WorkBuddy 环境适配」一节，
+> 分别是托管 Python 解释器和本技能的 `scripts/` 目录绝对路径。
+<!-- @endif -->
+
 ## 典型记录
 
 ```text
@@ -35,9 +40,9 @@ CSV/TSV 元件表必须先用表头识别列。常见表头包括
 路并发查询立创/JLC，并只输出需要处理的项目：
 
 ```bash
-python scripts/review_export.py export.txt --jobs 6
-python scripts/review_export.py export.txt --verbose
-python scripts/review_export.py export.txt --json
+{{PY}} {{script:review_export.py}} export.txt --jobs 6
+{{PY}} {{script:review_export.py}} export.txt --verbose
+{{PY}} {{script:review_export.py}} export.txt --json
 ```
 
 - 默认只输出解析告警、未精确匹配、无现货、封装冲突、参数冲突和关键参数无法核实项。
@@ -48,15 +53,15 @@ python scripts/review_export.py export.txt --json
 ## 解析命令（补充）
 
 ```bash
-python scripts/parse_schematic_export.py export.txt
-python scripts/parse_schematic_export.py export.txt --format json
-python scripts/parse_schematic_export.py export.txt --format lcsc
+{{PY}} {{script:parse_schematic_export.py}} export.txt
+{{PY}} {{script:parse_schematic_export.py}} export.txt --format json
+{{PY}} {{script:parse_schematic_export.py}} export.txt --format lcsc
 ```
 
 - 默认 `tsv` 输出适合人工核对。
 - `json` 输出保留属性、位号、原始行号和解析告警。
 - `lcsc` 输出每行一个去重型号，可直接保存后交给：
-  `python scripts/lcsc_lookup.py bom <型号清单>`
+  `{{PY}} {{script:lcsc_lookup.py}} bom <型号清单>`
 
 ## 证据边界
 
@@ -91,9 +96,9 @@ python scripts/parse_schematic_export.py export.txt --format lcsc
 当文件含 `$PACKAGES` 与 `$NETS` 时，改用：
 
 ```bash
-python scripts/parse_tel_netlist.py netlist.tel
-python scripts/parse_tel_netlist.py netlist.tel --pins U1
-python scripts/parse_tel_netlist.py netlist.tel --net GND
+{{PY}} {{script:parse_tel_netlist.py}} netlist.tel
+{{PY}} {{script:parse_tel_netlist.py}} netlist.tel --pins U1
+{{PY}} {{script:parse_tel_netlist.py}} netlist.tel --net GND
 ```
 
 记录形状：
@@ -107,8 +112,10 @@ $END
 ```
 
 - `$PACKAGES` 提供封装、型号、参数值和位号。
-- `$NETS` 提供网络名和 `位号.引脚号`。这是连接证据，可用于核对复位、电源、晶振、接口交叉和单引脚网络。- 网表段落顺序不固定；解析器会扫描 `$PACKAGES`/`$COMPONENTS` 和 `$NETS`/`$NETWORKS` 等别名，不依赖 `$PACKAGES` 必须在 `$NETS` 前。
-- 引脚号不一定是纯数字，也可能是 `A1`、`EP`、`PAD1` 等字母数字形式；连接证据只要求稳定的 `REF.PIN` 结构。- `{Value}` 和 `{Datasheet}` 是原理图库字段占位符，不应被当成真实参数或 URL：前者进入 `value_status=placeholder`，后者进入 `datasheet_status=placeholder`；若同一记录有真实 URL，则状态以 `url` 为准。
+- `$NETS` 提供网络名和 `位号.引脚号`。这是连接证据，可用于核对复位、电源、晶振、接口交叉和单引脚网络。
+- 网表段落顺序不固定；解析器会扫描 `$PACKAGES`/`$COMPONENTS` 和 `$NETS`/`$NETWORKS` 等别名，不依赖 `$PACKAGES` 必须在 `$NETS` 前。
+- 引脚号不一定是纯数字，也可能是 `A1`、`EP`、`PAD1` 等字母数字形式；连接证据只要求稳定的 `REF.PIN` 结构。
+- `{Value}` 和 `{Datasheet}` 是原理图库字段占位符，不应被当成真实参数或 URL：前者进入 `value_status=placeholder`，后者进入 `datasheet_status=placeholder`；若同一记录有真实 URL，则状态以 `url` 为准。
 - 连写检查必须区分：同一引脚重复出现在两个网络是明确错误；同一器件多个引脚出现在同一网络可能是并联功率脚、连接器双触点或内部功能脚，只列为待确认项。
 - 续行以空格开头，逗号只是行续接符。
 - 没有器件坐标或封装引脚名，不能判断去耦距离、极性方向或实际走线宽度。

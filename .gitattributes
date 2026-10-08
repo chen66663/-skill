@@ -1,0 +1,7 @@
+# 统一用 LF：构建产物与 CI 在任何平台都保持一致，diff 不会混入行尾噪声
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary
+*.xlsx binary

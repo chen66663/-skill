@@ -1,0 +1,12 @@
+{
+  "name": "workbuddy",
+  "display_name": "WorkBuddy",
+  "install_dir": "~/.workbuddy/skills",
+  "vars": {
+    "PY": "\"$PY\""
+  },
+  "patterns": {
+    "script": ["\"$SK/", "\""]
+  },
+  "overlay": "overlay"
+}

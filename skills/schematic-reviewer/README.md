@@ -1,35 +1,42 @@
 # schematic-reviewer（原理图检查专家）
 
+<!-- @if workbuddy -->
+WorkBuddy skill：原理图检查与审核。读数据手册做引脚级分析、查外围电路、算载流线宽、核验立创元器件参数与库存。
+由同名 Codex 技能迁移适配而来（Windows + Git Bash + WorkBuddy 托管 Python）。
+<!-- @else -->
 Codex skill：原理图检查与审核。读数据手册做引脚级分析、查外围电路、算载流线宽、核验立创元器件参数与库存。
+<!-- @endif -->
 
 ## 功能
 
 - 读数据手册做逐引脚分析，提取设计约束（电源、上下拉、电平、驱动能力）
 - 一条命令预检嘉立创 EDA/BOM 导出：解析、按型号去重、并发查询、缓存、问题筛选
 - 解析 BOM 卡片和带表头的 CSV/TSV 元件表，生成统一器件清单
+- 解析带网络连接的 `.tel` 网表（`位号.引脚号` 即连接证据）
 - 对照外部权威 checklist 检查外围电路：去耦、复位与配置、时钟、接口电平、模拟前端、功率路径、ESD
 - 识别大电流路径，按 IPC-2221 计算走线宽度并给出加宽建议
 - 通过立创/JLC 接口核实元器件规格与现货库存，缺货给替代型号
-- 直接输出问题清单，不生成报告/HTML/图片
+- 直接输出问题清单<!-- @if workbuddy -->，按严重度分组列在对话里<!-- @endif -->，不生成报告/HTML/图片
 
 ## 目录结构
 
 ```
 schematic-reviewer/
-|-- SKILL.md                        主流程与约束
-|-- agents/openai.yaml              UI 元数据（中文显示名）
-|-- scripts/
+|-- SKILL.md                        <!-- @if workbuddy -->主流程与约束（含 WorkBuddy 环境适配）<!-- @else -->主流程与约束<!-- @endif -->
+<!-- @if codex -->|-- agents/openai.yaml              UI 元数据（中文显示名）
+<!-- @endif -->|-- scripts/
 |   |-- review_export.py             导出预检：解析、去重、并发查询与问题筛选
 |   |-- parse_schematic_export.py   BOM 卡片与 CSV/TSV 元件表解析
 |   |-- parse_tel_netlist.py        .tel 网表解析（$PACKAGES/$NETS）
 |   |-- lcsc_lookup.py              立创/JLC 元器件查询
 |   `-- trace_width.py              IPC-2221 载流计算
-|-- tests/
+<!-- @if workbuddy -->|-- tests/                          4 个回归测试，共 23 项
+<!-- @else -->|-- tests/
 |   |-- test_review_export.py       预检与参数判定回归测试
 |   |-- test_lcsc_lookup.py         缓存、去重与并发查询回归测试
 |   |-- test_parse_schematic_export.py  BOM 卡片与表格解析回归测试
 |   `-- test_parse_tel_netlist.py       .tel 网表与引脚连接回归测试
-`-- references/
+<!-- @endif -->`-- references/
     |-- eda-export-format.md        导出格式、命令与证据边界
     |-- external-resources.md       权威 checklist 索引与手册获取
     |-- lcsc-guide.md               接口用法、字段、避坑
@@ -37,23 +44,48 @@ schematic-reviewer/
     `-- trace-current-table.md      载流速查表（由脚本生成）
 ```
 
-## 脚本
+<!-- @if workbuddy -->
+## 环境约定
+
+跑脚本前先在 Bash 里定义这两个变量（脚本只依赖标准库，已用托管 Python 3.13 验证）：
+
+```bash
+SK="$HOME/.workbuddy/skills/schematic-reviewer/scripts"
+PY=$(ls -1 "$HOME"/.workbuddy/binaries/python/versions/*/python.exe 2>/dev/null | sort -V | tail -n1)
+```
+
+路径用正斜杠，不要用裸 `python`。
+
+<!-- @endif -->
+## 命令
 
 ```bash
 # 一条命令预检导出：解析、去重、批量核验，只输出问题
-python scripts/review_export.py export.txt --jobs 6
-python scripts/review_export.py export.txt --verbose
-python scripts/review_export.py export.txt --json
+{{PY}} {{script:review_export.py}} export.txt --jobs 6
+{{PY}} {{script:review_export.py}} export.txt --verbose
+{{PY}} {{script:review_export.py}} export.txt --json
 
 # 解析嘉立创 EDA/BOM 导出
-python scripts/parse_schematic_export.py export.txt
-python scripts/parse_schematic_export.py export.txt --format json
-python scripts/parse_schematic_export.py export.txt --format lcsc
+{{PY}} {{script:parse_schematic_export.py}} export.txt
+{{PY}} {{script:parse_schematic_export.py}} export.txt --format json
+{{PY}} {{script:parse_schematic_export.py}} export.txt --format lcsc
 
 # 解析带网络连接的 .tel 网表
-python scripts/parse_tel_netlist.py netlist.tel
-python scripts/parse_tel_netlist.py netlist.tel --pins U1
-python scripts/parse_tel_netlist.py netlist.tel --net NRST
+{{PY}} {{script:parse_tel_netlist.py}} netlist.tel
+{{PY}} {{script:parse_tel_netlist.py}} netlist.tel --pins U1
+{{PY}} {{script:parse_tel_netlist.py}} netlist.tel --net NRST
+
+# 元器件核实
+{{PY}} {{script:lcsc_lookup.py}} get C8734
+{{PY}} {{script:lcsc_lookup.py}} search "0603 100nF 50V X7R" --in-stock
+{{PY}} {{script:lcsc_lookup.py}} bom mpn_list.txt --jobs 6
+
+# 载流计算
+{{PY}} {{script:trace_width.py}} width --current 3 --copper 1 --layer outer --dt 10
+{{PY}} {{script:trace_width.py}} current --width 50 --copper 1 --layer outer --dt 10
+{{PY}} {{script:trace_width.py}} table
+```
+
 `.tel` 解析不依赖固定排列顺序：会扫描并识别 `$PACKAGES`/`$COMPONENTS`、`$NETS`/`$NETWORKS` 等别名，支持字母数字混合引脚号（如 `U1.A1`）。除解析告警外，输出还包含 `connectivity_findings`，用于列出重复网络段、同器件多引脚连写等需要结合数据手册确认的拓扑事项。
 解析结果还会保留器件字段状态：
 
@@ -63,17 +95,6 @@ python scripts/parse_tel_netlist.py netlist.tel --net NRST
 - `datasheet_status=placeholder`：存在 `{Datasheet}`，但需要继续从型号、厂商或 LCSC 信息补齐手册。
 
 这些状态会出现在 JSON 的 `packages` 记录中，摘要中也会给出占位字段计数；占位符本身不作为解析失败。
-
-# 元器件核实
-python scripts/lcsc_lookup.py get C8734
-python scripts/lcsc_lookup.py search "0603 100nF 50V X7R" --in-stock
-python scripts/lcsc_lookup.py bom mpn_list.txt --jobs 6
-
-# 载流计算
-python scripts/trace_width.py width --current 3 --copper 1 --layer outer --dt 10
-python scripts/trace_width.py current --width 50 --copper 1 --layer outer --dt 10
-python scripts/trace_width.py table
-```
 
 `parse_schematic_export.py` 会自动识别：
 
@@ -86,14 +107,31 @@ python scripts/trace_width.py table
 - 含 `$PACKAGES` 与 `$NETS` 的 `.tel` 会被明确分流到
   `parse_tel_netlist.py`，不会再被伪装成器件清单解析。
 
+<!-- @if workbuddy -->
+## WorkBuddy 工具映射
+
+| 任务 | 工具 |
+|---|---|
+| 读原理图图片 / PDF | Read 工具（原生多模态与 PDF 解析） |
+| 抓外部 checklist、在线手册页 | WebFetch |
+| 下载手册 PDF | Bash `curl -L -o <file> "<URL>"`，校验文件头 `%PDF-` |
+| 立创元器件数据 | 只能用 `lcsc_lookup.py` 接口，抓网页拿不到数据 |
+| 跑脚本 | Bash（Git Bash，正斜杠路径） |
+
+<!-- @endif -->
 ## 验证
 
 ```bash
-python tests/test_parse_schematic_export.py
-python tests/test_parse_tel_netlist.py
-python tests/test_lcsc_lookup.py
-python tests/test_review_export.py
+<!-- @if workbuddy -->cd "$HOME/.workbuddy/skills/schematic-reviewer"
+<!-- @endif -->{{PY}} tests/test_parse_schematic_export.py
+{{PY}} tests/test_parse_tel_netlist.py
+{{PY}} tests/test_lcsc_lookup.py
+{{PY}} tests/test_review_export.py
 ```
+
+<!-- @if workbuddy -->
+本机已验证：23 项全部通过；`lcsc_lookup.py get C8734` 实返回 STM32F103C8T6 库存 148295。
+<!-- @endif -->
 
 ## 效率设计
 
@@ -106,11 +144,16 @@ python tests/test_review_export.py
 
 - Python 3.8+，只依赖标准库
 - 可访问 `jlcpcb.com`（元器件接口）与厂商数据手册站点
+<!-- @if workbuddy -->
+
+WorkBuddy 下另有约定：用托管 Python 绝对路径（见「环境约定」），不要用裸 `python`。
+<!-- @endif -->
 
 ## 已知限制
 
 - 无浏览器自动化：立创商城网页是 JS 单页应用，抓 HTML 拿不到商品数据，必须走接口。
-- 嘉立创 EDA/BOM 导出通常只有器件参数，没有网络连接；不能据此判断具体引脚接线。带 `$NETS` 的 `.tel` 可以核对 `位号.引脚号`，但仍没有坐标和封装引脚名。
+- 嘉立创 EDA/BOM 导出通常只有器件参数，没有网络连接；不能据此判断具体引脚接线。带 `$NETS` 的 `.tel`
+  可以核对 `位号.引脚号`，但仍没有坐标和封装引脚名，无法判断去耦是否靠近引脚或走线宽度。
 - 元器件接口为第三方公开接口，无鉴权但可能变更；失效时脚本会明确报错，需重新探查接口。
 - 立创手册链接是在线阅读页而非 PDF 直链，数据手册优先从厂商官网取。
 - 导出预检只覆盖型号、库存、封装和可获得的器件参数，不代表已完成原理图网络级检查。

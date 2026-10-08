@@ -1,5 +1,9 @@
 # 立创/JLC 元器件核实用法
 
+<!-- @if workbuddy -->
+> 下文命令里的 `$PY` 与 `$SK` 定义在 SKILL.md 的「WorkBuddy 环境适配」一节。
+<!-- @endif -->
+
 > **数据源**：JLC SMT 元器件库接口。它与立创商城共用同一商品库，C 编号一致，无需鉴权即可匿名调用。
 > **重要**：旧资料里的 `lcsc.com/api/global/additional/search`、`lcsc.com/api/products/search`、
 > `wmsc.lcsc.com`、`so.szlcsc.com` 接口现在已经失效（返回 SPA 空壳 HTML 或 403），不要再用。
@@ -7,10 +11,10 @@
 ## 一、用脚本查询（首选）
 
 ```bash
-python scripts/lcsc_lookup.py get C8734
-python scripts/lcsc_lookup.py search "STM32F103C8T6" --limit 5
-python scripts/lcsc_lookup.py search "0603 100nF 50V X7R" --in-stock
-python scripts/lcsc_lookup.py bom mpn_list.txt --jobs 6
+{{PY}} {{script:lcsc_lookup.py}} get C8734
+{{PY}} {{script:lcsc_lookup.py}} search "STM32F103C8T6" --limit 5
+{{PY}} {{script:lcsc_lookup.py}} search "0603 100nF 50V X7R" --in-stock
+{{PY}} {{script:lcsc_lookup.py}} bom mpn_list.txt --jobs 6
 ```
 
 - `get <C编号>`：按立创编号精确查询，用于已知编号的复核。

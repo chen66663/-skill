@@ -1,5 +1,10 @@
 ---
 name: schematic-reviewer
+<!-- @if workbuddy -->
+agent_created: true
+metadata:
+  short-description: 原理图审查与元器件核实（适配 WorkBuddy）
+<!-- @endif -->
 description: >-
   原理图检查与审核专家：读芯片数据手册做逐引脚分析，识别去耦、上拉、匹配等外围元件缺失或参数错误，
   标注大电流路径并给出 PCB 走线加宽建议，通过立创/JLC 接口核实元器件规格（耐压、额定电流、封装）
@@ -11,6 +16,25 @@ description: >-
 
 # 原理图检查专家
 
+<!-- @if workbuddy -->
+## WorkBuddy 环境适配
+
+本技能运行在 WorkBuddy（Windows + Git Bash）下。执行任何脚本前，先在 Bash 里执行一次：
+
+```bash
+SK="$HOME/.workbuddy/skills/schematic-reviewer/scripts"
+PY=$(ls -1 "$HOME"/.workbuddy/binaries/python/versions/*/python.exe 2>/dev/null | sort -V | tail -n1)
+: "${PY:?未找到 WorkBuddy 托管 Python，请把 PY 手动指定为绝对路径}"
+```
+
+- 不要用裸 `python` / `py`：PATH 里可能命中别的解释器，版本与依赖都不可控。
+- 路径一律用正斜杠 `/`；含空格的路径整段加双引号。后文所有命令都写成 `"$PY" "$SK/xxx.py"` 的形式。
+- 技能装在别处时，把 `SK` 指向实际的 `scripts` 目录；`references/` 与 `tests/` 就在它的同级。
+- 脚本只依赖标准库，Python 3.8+ 可跑；已用托管 Python 3.13 验证（23 项回归测试全绿）。
+- 网络出口可直连 `jlcpcb.com`，实测返回真实库存数据；若报「无法访问元器件接口」，说明当前沙箱/代理拦截，如实告知用户，不要伪造参数。
+- 本技能的交付物是**对话里的问题清单**，不是文件。用户明确要求时才落盘，且不要写 `.md` 报告。
+
+<!-- @endif -->
 ## 输出原则
 
 - **只列有问题的部分**，直接说哪里有问题、怎么改。不生成图片或 HTML，不写概述/总结/检查依据等报告套话。
@@ -22,20 +46,36 @@ description: >-
 
 ## 本环境可用工具
 
+<!-- @if workbuddy -->
+| 任务 | 用什么 |
+|---|---|
+| 读原理图图片（PNG/JPG） | Read 工具直接查看图片，逐模块识别器件 |
+| 读原理图 / 数据手册 PDF | Read 工具原生读 PDF（逐页提取文字与版式）；`*.pdf` 先用 Bash 下载并校验文件头为 `%PDF-` |
+| 抓数据手册 / 外部 checklist | WebFetch 工具（首选，自动转 markdown）；静态 PDF 用 Bash `curl -L -o` 下载 |
+| 立创商城等 JS 单页应用 | 走 `{{script:lcsc_lookup.py}}` 接口，**不要**用 WebFetch 抓商品页（拿不到数据）；确有交互需求时才考虑 `agent-browser` 技能 |
+| 快速预检嘉立创 EDA/BOM 导出 | `{{script:review_export.py}}`（解析、去重、并发、缓存、问题筛选） |
+| 解析 BOM 卡片、CSV/TSV 元件表 | `{{script:parse_schematic_export.py}}`（需要原始清单或自定义输出时使用） |
+| 解析 .tel 原理图网表 | `{{script:parse_tel_netlist.py}}`（含 `$PACKAGES` 与 `$NETS` 时使用） |
+| 元器件规格与库存 | `{{script:lcsc_lookup.py}}`（见下） |
+| 载流计算 | `{{script:trace_width.py}}`（见下） |
+
+> 元器件信息一律走接口。立创商城网页是 JS 单页应用，抓 HTML 只能拿到空壳。
+<!-- @else -->
 | 任务 | 用什么 |
 |---|---|
 | 读原理图图片（PNG/JPG） | 直接查看图片文件，逐模块识别器件 |
 | 读原理图 PDF | `pdf` skill（转图片识别，或提取文字与网表） |
 | 读数据手册 PDF | `pdf` skill；下载后先确认文件头是 `%PDF-` |
-| 快速预检嘉立创 EDA/BOM 导出 | `scripts/review_export.py`（解析、去重、并发、缓存、问题筛选） |
-| 解析 BOM 卡片、CSV/TSV 元件表 | `scripts/parse_schematic_export.py`（需要原始清单或自定义输出时使用；自动识别多行卡片、同行位号和表头表格） |
-| 解析 .tel 原理图网表 | `scripts/parse_tel_netlist.py`（含 $PACKAGES 与 $NETS 时使用） |
-| 元器件规格与库存 | `scripts/lcsc_lookup.py`（见下） |
-| 载流计算 | `scripts/trace_width.py`（见下） |
+| 快速预检嘉立创 EDA/BOM 导出 | `{{script:review_export.py}}`（解析、去重、并发、缓存、问题筛选） |
+| 解析 BOM 卡片、CSV/TSV 元件表 | `{{script:parse_schematic_export.py}}`（需要原始清单或自定义输出时使用；自动识别多行卡片、同行位号和表头表格） |
+| 解析 .tel 原理图网表 | `{{script:parse_tel_netlist.py}}`（含 $PACKAGES 与 $NETS 时使用） |
+| 元器件规格与库存 | `{{script:lcsc_lookup.py}}`（见下） |
+| 载流计算 | `{{script:trace_width.py}}`（见下） |
 | 抓数据手册 / checklist | shell 里用 `curl` 或 `Invoke-WebRequest` 抓取 |
 
 > 本环境**没有浏览器自动化工具**，也没有 PDF 之外的专用阅读技能。立创商城网页是 JS 单页应用，
 > 直接抓 HTML 拿不到商品数据，元器件信息一律走接口。
+<!-- @endif -->
 
 ## 导出预检与解析
 
@@ -52,9 +92,9 @@ C0402 ! CC0402JRNPO9BN470容值:47pF;精度:±5%;额定电压:50V ! 47pF ,
 ```
 
 ```bash
-python scripts/review_export.py export.txt --jobs 6
-python scripts/review_export.py export.txt --verbose
-python scripts/review_export.py export.txt --json
+{{PY}} {{script:review_export.py}} export.txt --jobs 6
+{{PY}} {{script:review_export.py}} export.txt --verbose
+{{PY}} {{script:review_export.py}} export.txt --json
 ```
 
 预检会在一条命令内完成：
@@ -67,17 +107,17 @@ python scripts/review_export.py export.txt --json
 缓存与并发可按需调整：
 
 ```bash
-python scripts/review_export.py export.txt --no-cache
-python scripts/review_export.py export.txt --cache-ttl 3600 --jobs 8
-python scripts/review_export.py export.txt --cache-file .review-cache.json
+{{PY}} {{script:review_export.py}} export.txt --no-cache
+{{PY}} {{script:review_export.py}} export.txt --cache-ttl 3600 --jobs 8
+{{PY}} {{script:review_export.py}} export.txt --cache-file .review-cache.json
 ```
 
 需要原始规范化清单时，再单独调用解析器：
 
 ```bash
-python scripts/parse_schematic_export.py export.txt
-python scripts/parse_schematic_export.py export.txt --format json
-python scripts/parse_schematic_export.py export.txt --format lcsc
+{{PY}} {{script:parse_schematic_export.py}} export.txt
+{{PY}} {{script:parse_schematic_export.py}} export.txt --format json
+{{PY}} {{script:parse_schematic_export.py}} export.txt --format lcsc
 ```
 
 - 默认输出 `位号 | 封装 | 型号 | 参数值 | 关键属性 | 数据手册` 的 TSV。
@@ -90,14 +130,16 @@ python scripts/parse_schematic_export.py export.txt --format lcsc
 输入含 `$PACKAGES` 和 `$NETS`，或文件扩展名是 `.tel` 时，第一步运行：
 
 ```bash
-python scripts/parse_tel_netlist.py netlist.tel
-python scripts/parse_tel_netlist.py netlist.tel --pins U22
-python scripts/parse_tel_netlist.py netlist.tel --net NRST
-python scripts/parse_tel_netlist.py netlist.tel --format json
+{{PY}} {{script:parse_tel_netlist.py}} netlist.tel
+{{PY}} {{script:parse_tel_netlist.py}} netlist.tel --pins U22
+{{PY}} {{script:parse_tel_netlist.py}} netlist.tel --net NRST
+{{PY}} {{script:parse_tel_netlist.py}} netlist.tel --format json
 ```
 
-- `REF.PIN` 是连接证据：`U22.25` 表示位号 U22 的第 25 脚属于该网络。- 不假设 `$PACKAGES`、`$NETS`、`$COMPONENTS`、`$NETWORKS` 等段落的出现顺序；先扫描全部 section，再按别名归类。
-- 不假设器件种类固定；先以网表实际出现的封装、型号、位号和引脚连接为准，未知类别只报告可证明的拓扑问题。- 解析 `$PACKAGES` 时保留字段状态：`{Value}` 表示 Value 属性未展开，不能拿它做容值/阻值/额定参数核对；`{Datasheet}` 表示 Datasheet 属性是占位符，不等于已经有可打开的数据手册。
+- `REF.PIN` 是连接证据：`U22.25` 表示位号 U22 的第 25 脚属于该网络。
+- 不假设 `$PACKAGES`、`$NETS`、`$COMPONENTS`、`$NETWORKS` 等段落的出现顺序；先扫描全部 section，再按别名归类。
+- 不假设器件种类固定；先以网表实际出现的封装、型号、位号和引脚连接为准，未知类别只报告可证明的拓扑问题。
+- 解析 `$PACKAGES` 时保留字段状态：`{Value}` 表示 Value 属性未展开，不能拿它做容值/阻值/额定参数核对；`{Datasheet}` 表示 Datasheet 属性是占位符，不等于已经有可打开的数据手册。
 - 如果器件记录同时带有真实 URL、型号和占位符，优先使用真实 URL；如果只有 `{Datasheet}`，把器件列为“手册待补齐”，不要把占位符当成型号或链接。
 - 连线检查分两层：重复引脚、同一引脚跨两个网络、网络引用未定义位号属于解析错误；同一器件多个引脚出现在同一网络、重复网络段、单引脚网络属于“连线待确认项”，必须结合器件数据手册和引脚功能判断，不能直接判定短路。
 - 先用 `--pins <位号>` 取 IC 引脚网络，再对照数据手册；不要把自动网络名（如 `$1N14`）当成信号功能。
@@ -110,10 +152,10 @@ python scripts/parse_tel_netlist.py netlist.tel --format json
 ## 元器件核实：立创/JLC 接口
 
 ```bash
-python scripts/lcsc_lookup.py get C8734
-python scripts/lcsc_lookup.py search "0603 100nF 50V X7R" --in-stock
-python scripts/lcsc_lookup.py search "SOT-23 N-MOS 30V" --limit 5
-python scripts/lcsc_lookup.py bom mpn_list.txt --jobs 6
+{{PY}} {{script:lcsc_lookup.py}} get C8734
+{{PY}} {{script:lcsc_lookup.py}} search "0603 100nF 50V X7R" --in-stock
+{{PY}} {{script:lcsc_lookup.py}} search "SOT-23 N-MOS 30V" --limit 5
+{{PY}} {{script:lcsc_lookup.py}} bom mpn_list.txt --jobs 6
 ```
 
 脚本返回：立创编号、品牌、型号、封装、现货库存、阶梯价、`attributes` 规格参数、手册链接、商品页。
@@ -127,13 +169,16 @@ python scripts/lcsc_lookup.py bom mpn_list.txt --jobs 6
 
 ## 数据手册获取
 
-1. 优先抓**厂商官网 PDF**（如 `https://www.st.com/resource/en/datasheet/<型号>.pdf`），一般可直接下载。
+1. 优先抓**厂商官网 PDF**（如 `https://www.st.com/resource/en/datasheet/<型号>.pdf`），一般可直接下载<!-- @if workbuddy -->：`curl -L -o ds.pdf "<URL>"`（Git Bash；超时加 `--max-time 60`）<!-- @endif -->。
 2. 接口返回的 `dataManualUrl` 可作线索，但它是 LCSC 在线阅读页而非 PDF 直链。
-3. 下载后校验：文件头应为 `%PDF-`；若是 `<!doctype html>` 说明被拦，换来源。
-4. 用 `pdf` skill 读取，**必须读到**：Pin Configuration、Recommended Operating Conditions、
+3. <!-- @if workbuddy -->下载后校验文件头：`head -c 5 ds.pdf` 应为 `%PDF-`<!-- @else -->下载后校验：文件头应为 `%PDF-`<!-- @endif -->；若是 `<!doctype html>` 说明被拦，换来源。
+4. <!-- @if workbuddy -->用 Read 工具读 PDF（原生逐页提取文字与版式）<!-- @else -->用 `pdf` skill 读取<!-- @endif -->，**必须读到**：Pin Configuration、Recommended Operating Conditions、
    Electrical Characteristics、Absolute Maximum Ratings、Application Information/Typical Application、
    Layout Guidelines。
 5. 手册很长时按关键词定位（"pin description"、"decoupling"、"layout"、"application circuit"），不要逐页通读。
+<!-- @if workbuddy -->
+6. 下载不到 PDF 时，用 WebFetch 抓厂商在线版页面作次选，并明确标注依据是网页而非手册原文。
+<!-- @endif -->
 
 ## 工作流程
 
@@ -141,7 +186,7 @@ python scripts/lcsc_lookup.py bom mpn_list.txt --jobs 6
 
 ### 第 1 步：输入解析与器件清单
 
-输入可能是原理图图片、原理图 PDF、网表/文本描述，或口头描述的电路。输入含 `$PACKAGES` 和 `$NETS` 时，第一步运行 `scripts/parse_tel_netlist.py`，用它的引脚网络作为连接证据。遇到 BOM 卡片（同行或换行位号均可）或带表头的 CSV/TSV 元件表时，第一步运行 `scripts/review_export.py` 完成解析、去重、批量核验和问题筛选；只有需要原始清单或自定义格式时才再调用 `scripts/parse_schematic_export.py`。
+输入可能是原理图图片、原理图 PDF、网表/文本描述，或口头描述的电路。输入含 `$PACKAGES` 和 `$NETS` 时，第一步运行 `{{script:parse_tel_netlist.py}}`，用它的引脚网络作为连接证据。遇到 BOM 卡片（同行或换行位号均可）或带表头的 CSV/TSV 元件表时，第一步运行 `{{script:review_export.py}}` 完成解析、去重、批量核验和问题筛选；只有需要原始清单或自定义格式时才再调用 `{{script:parse_schematic_export.py}}`。
 
 - 输出器件清单：`位号 | 型号 | 功能模块 | 关键引脚连接`
 - 先从原始证据中区分“器件参数列表”和“网络连接列表”。只有器件参数而没有网络连接时，关键引脚连接不得猜测。
@@ -183,7 +228,7 @@ python scripts/lcsc_lookup.py bom mpn_list.txt --jobs 6
 
 1. **识别大电流节点**：电源主输入、电机驱动、LED 驱动、DCDC 开关节点(SW)、功率地(PGND)、USB 5V、充电电路。
 2. **估算电流**：从数据手册取 IC 最大电流或负载额定电流；DCDC 输入电流 ≈ 输出电流 × (Vout/Vin) / 效率；电机启动电流按额定 3~5 倍。
-3. **算线宽**：用 `python scripts/trace_width.py width --current <A> --copper 1 --layer outer --dt 10`，
+3. **算线宽**：用 `{{PY}} {{script:trace_width.py}} width --current <A> --copper 1 --layer outer --dt 10`，
    默认 1oz 铜厚、外层、温升 ≤10℃，建议留 1.5~2 倍裕量。数据表见 [references/trace-current-table.md](references/trace-current-table.md)。
 4. **地平面**：模拟地/功率地单点连接；大电流回路面积尽量小。
 
@@ -193,7 +238,7 @@ python scripts/lcsc_lookup.py bom mpn_list.txt --jobs 6
 
 预检已自动核验通过的普通无源器件不再逐件重复查询。对预检告警项、IC、电源和接口继续核实规格与库存，必须核实的参数见 [references/lcsc-guide.md](references/lcsc-guide.md) 第三节。
 
-- 优先使用 `review_export.py`；没有导出格式或需要单独补充查询时，再用 `scripts/lcsc_lookup.py`。
+- 优先使用 `review_export.py`；没有导出格式或需要单独补充查询时，再用 `{{script:lcsc_lookup.py}}`。
 - 库存为 0 的器件必须标注，并给出至少 1 个有现货的替代型号。
 - 参数以接口返回为准；接口参数与数据手册冲突时以数据手册为准，并指出冲突。
 
@@ -229,12 +274,15 @@ python scripts/lcsc_lookup.py bom mpn_list.txt --jobs 6
 ## 关键约束
 
 1. 禁止凭记忆填写元器件耐压、电流、功率等参数，必须查接口核实。
-2. 禁止生成图片、HTML 或完整 MD 报告；直接列问题，不写概述/总结/检查依据等套话。
+2. 禁止生成图片、HTML 或完整 MD 报告；<!-- @if workbuddy -->结果直接在对话里按第 6 步的格式列出，不写概述/总结/检查依据等套话，也不落盘成 `.md`。<!-- @else -->直接列问题，不写概述/总结/检查依据等套话。<!-- @endif -->
 3. 数据手册引用必须标注页码或章节名。
-4. 检查规则优先引用外部权威 checklist，不要只依赖本地 references。
+4. 检查规则优先引用外部权威 checklist<!-- @if workbuddy -->（用 WebFetch 现抓）<!-- @endif -->，不要只依赖本地 references。
 5. 立创查询优先用脚本或接口，网页抓取拿不到数据。
 6. 用户未提供原理图文件时，先询问输入形式，不要凭空假设电路。
 7. 载流计算默认 1oz 铜厚；用户指定其它铜厚时按比例换算并注明假设。
 8. 不将铜柱、螺柱、螺钉、螺母、垫片等机械结构件作为原理图电气问题、BOM 缺货问题或替代选型问题报告。
-9. 解析嘉立创 EDA/BOM 导出时先运行 `scripts/review_export.py` 做一次批量预检；不得逐件重复查询已通过型号，也不得把仅含器件参数的导出误当成包含网络连接的完整网表。
-10. 解析含 `$PACKAGES` 与 `$NETS` 的 `.tel` 网表时先运行 `scripts/parse_tel_netlist.py`；引脚连接只以 `REF.PIN` 记录为准。
+9. 解析嘉立创 EDA/BOM 导出时先运行 `{{script:review_export.py}}` 做一次批量预检；不得逐件重复查询已通过型号，也不得把仅含器件参数的导出误当成包含网络连接的完整网表。
+10. 解析含 `$PACKAGES` 与 `$NETS` 的 `.tel` 网表时先运行 `{{script:parse_tel_netlist.py}}`；引脚连接只以 `REF.PIN` 记录为准。
+<!-- @if workbuddy -->
+11. 跑脚本一律用「WorkBuddy 环境适配」里的 `$PY` 与 `$SK`，不要用裸 `python` 或 `py`，避免命中系统里其它 Python。
+<!-- @endif -->
