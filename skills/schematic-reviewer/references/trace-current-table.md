@@ -5,7 +5,7 @@
 > - ΔT = 允许温升（℃）；A = 横截面积（mil²）= 线宽(mil) × 铜厚(mil)
 > - 1oz 铜厚 = 1.37 mil = 35µm；2oz = 2.74 mil；0.5oz = 0.685 mil
 >
-> 下表由 `scripts/trace_width.py table` 生成，与该公式结果一致。
+> 下表由 `{{PY}} {{script:trace_width.py}} table` 生成，与该公式结果一致。
 > 需要表中没有的线宽、铜厚或温升时，直接用脚本计算，不要线性外推本表。
 
 ## 1oz 铜厚 · 外层走线

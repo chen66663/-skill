@@ -7,7 +7,7 @@ WorkBuddy（Windows + Git Bash）与 Codex 两套可直接安装的产物。
 
 | skill | 作用 |
 |---|---|
-| [schematic-reviewer](skills/schematic-reviewer/) | 原理图检查与审核。读芯片数据手册做逐引脚分析，检查去耦、上拉、匹配等外围电路是否缺失或参数错误，识别大电流路径并按 IPC-2221 计算走线宽度，通过立创/JLC 接口核实元器件规格与现货库存。 |
+| [schematic-reviewer](docs/schematic-reviewer.md) | 原理图检查与审核。读芯片数据手册做逐引脚分析，检查去耦、上拉、匹配等外围电路是否缺失或参数错误，识别大电流路径并按 IPC-2221 计算走线宽度，通过立创/JLC 接口核实元器件规格与现货库存。 |
 
 ## 仓库结构
 
@@ -22,12 +22,13 @@ WorkBuddy（Windows + Git Bash）与 Codex 两套可直接安装的产物。
 |   `-- codex/overlay/           Codex 专属文件（agents/openai.yaml）
 |-- skills/                      唯一需要维护的源码
 |   `-- schematic-reviewer/
-|       |-- SKILL.md             主流程与约束（含平台标记）
-|       |-- README.md            skill 级别说明
+|       |-- SKILL.md             主流程、输出原则、Gotchas 与约束（含平台标记）
 |       |-- references/          外部 checklist 索引、立创接口用法、外围电路规则、载流速查表
 |       |-- scripts/             5 个纯标准库脚本
 |       `-- tests/               4 个回归测试，共 23 项
-|-- docs/images/                 嘉立创 EDA 导出操作截图
+|-- docs/
+|   |-- schematic-reviewer.md    skill 使用说明（给人看的，不随 skill 安装）
+|   `-- images/                  嘉立创 EDA 导出操作截图
 `-- dist/                        构建产物，不入库（见 .gitignore）
 ```
 
@@ -93,6 +94,25 @@ python build.py --install codex
 ```bash
 cp -r dist/codex/schematic-reviewer ~/.codex/skills/
 ```
+
+## 规范符合性
+
+产物按 Agent Skills 规范组织（参考 anthropics/skills 的 skill-creator 与官方 best-practices）：
+
+| 要求 | 本仓库的做法 |
+|---|---|
+| `SKILL.md` 必填 `name` + `description` | 都有；`name` 为小写连字符，`description` 单行、第三人称、含“做什么 + 何时触发” |
+| `description` 不得含尖括号、≤1024 字符 | 不用 YAML 的 `>-` 折叠标量（那个 `>` 会被朴素校验器判成尖括号），写成语义等价的单行标量 |
+| 目录只放 `SKILL.md` + `scripts/` + `references/`（+ 功能性 `tests/`） | 是；不放 `README.md` 之类附属文档，给人看的说明放在 `docs/` |
+| `SKILL.md` 正文 ≤ 500 行 | 是（约 285 行） |
+| 渐进披露：细节放 `references/`，只被 `SKILL.md` 直接引用（引用深度 ≤ 1 层） | 是；`references/` 之间不互相链接 |
+| 长参考文件（>100 行）带目录 | 是 |
+| 把会失败的点单独收敛成 Gotchas 章节 | 是，见 `SKILL.md` 的「Gotchas（踩过的坑）」 |
+| 确定的计算下沉到脚本，不让模型现推 | 是；载流计算、参数比对、解析全部走 `scripts/` |
+
+`description` 不用 `>-` 是一个容易踩的点：WorkBuddy 自带的 `quick_validate.py` 会报
+`Description cannot contain angle brackets`，即使内容里根本没有尖括号——它把 YAML 折叠标量的
+`>` 当成了尖括号。写成单行标量两边都干净。
 
 ## 使用步骤（嘉立创 EDA 导出网表 → 让 AI 检查）
 

@@ -56,7 +56,7 @@
 ### 2.1 获取顺序
 
 1. **厂商官网 PDF**（优先，通常可直接下载）：STM32 等取 `https://www.st.com/resource/en/datasheet/<型号>.pdf`，TI 取 `https://www.ti.com/lit/ds/<...>.pdf`。
-2. **接口返回的 `dataManualUrl`**：`scripts/lcsc_lookup.py` 会打印，但它是 LCSC 的在线阅读页，不是 PDF 直链，抓下来通常是 HTML。
+2. **接口返回的 `dataManualUrl`**：`{{script:lcsc_lookup.py}}` 会打印，但它是 LCSC 的在线阅读页，不是 PDF 直链，抓下来通常是 HTML。
 3. 分销商站点：Digi-Key、Mouser、Octopart。
 
 ### 2.2 校验下载结果
@@ -80,13 +80,13 @@
 - IEEE 315：图形符号标准
 
 载流公式：I = k × ΔT^0.44 × A^0.725，k = 0.048（外层）/ 0.024（内层）。
-数据表见 [trace-current-table.md](trace-current-table.md)；计算用 `scripts/trace_width.py`。
+速查表见 `trace-current-table.md`；计算用 `{{script:trace_width.py}}`。
 
 ## 四、元器件供应链
 
 - 立创商城（国内）：`https://www.szlcsc.com/`
 - LCSC（国际）：`https://www.lcsc.com/`
-- 查询方式、可用接口与字段说明见 [lcsc-guide.md](lcsc-guide.md)
+- 查询方式、可用接口与字段说明见 `lcsc-guide.md`
 
 ## 五、使用方式
 
