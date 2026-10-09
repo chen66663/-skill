@@ -1,7 +1,8 @@
 # schematic-reviewer — 原理图检查 skill（WorkBuddy / Codex 双平台）
 
-一套源码，两种装法。仓库里只维护**一份** skill 源，靠平台标记和路径占位符渲染出
-WorkBuddy（Windows + Git Bash）与 Codex 两套可直接安装的产物。
+仓库里只维护**一份** skill 源，渲染出 WorkBuddy 与 Codex 两套可直接安装的产物。
+
+构建、安装与规范符合性说明见 [docs/build-and-install.md](docs/build-and-install.md)。
 
 ## 包含的 skill
 
@@ -13,7 +14,7 @@ WorkBuddy（Windows + Git Bash）与 Codex 两套可直接安装的产物。
 
 ```
 .
-|-- README.md                    本文件：总览、构建与安装说明
+|-- README.md                    本文件：总览与使用步骤
 |-- build.py                     构建器：单一源 -> dist/<平台>/
 |-- platforms/                   平台适配定义
 |   |-- README.md                平台标记与占位符语法
@@ -27,92 +28,11 @@ WorkBuddy（Windows + Git Bash）与 Codex 两套可直接安装的产物。
 |       |-- scripts/             5 个纯标准库脚本
 |       `-- tests/               4 个回归测试，共 23 项
 |-- docs/
-|   |-- schematic-reviewer.md    skill 使用说明（给人看的，不随 skill 安装）
+|   |-- build-and-install.md     构建、安装与规范符合性
+|   |-- schematic-reviewer.md    skill 使用说明（不随 skill 安装）
 |   `-- images/                  嘉立创 EDA 导出操作截图
 `-- dist/                        构建产物，不入库（见 .gitignore）
 ```
-
-## 构建
-
-需要 Python 3.8+，只用标准库。
-
-```bash
-python build.py                     # 构建全部平台到 dist/
-python build.py --platform codex    # 只构建指定平台
-python build.py --check             # 只校验模板能否渲染，不写 dist/
-python build.py --install workbuddy # 构建并直接装到 ~/.workbuddy/skills
-python build.py --clean             # 删除 dist/
-```
-
-`--install` 覆盖同名 skill 前会先把原目录改名成 `<skill>.backup-<时间戳>` 留档。
-
-产物：
-
-```
-dist/workbuddy/schematic-reviewer/    # 拷到 ~/.workbuddy/skills/ 即可
-dist/codex/schematic-reviewer/        # 拷到 ~/.codex/skills/ 即可
-dist/<平台>/BUILD.json                # 本次构建的平台、变量与文件清单
-```
-
-### 为什么要有构建这一步
-
-两套产物 90% 的内容是一样的，差异只有三处：
-
-1. **工具映射**：WorkBuddy 用 Read / WebFetch / Bash，Codex 用 `pdf` skill 与 shell 抓取。
-2. **跑脚本的方式**：WorkBuddy 用托管 Python 绝对路径，Codex 用相对路径 `python scripts/...`。
-3. **frontmatter 与专属文件**：WorkBuddy 多 `agent_created` / `metadata.short-description`；
-   Codex 多 `agents/openai.yaml`。
-
-把这三处抽出来之后，脚本、测试、参考资料只留一份，不会再出现「改了一边忘了另一边」的漂移。
-语法细节见 [platforms/README.md](platforms/README.md)。
-
-## 安装
-
-### WorkBuddy
-
-```bash
-python build.py --install workbuddy
-```
-
-或手动拷贝：
-
-```bash
-cp -r dist/workbuddy/schematic-reviewer ~/.workbuddy/skills/
-```
-
-装好后 skill 目录下的 `SKILL.md` 会带一段「WorkBuddy 环境适配」，其中定义了脚本目录与
-托管 Python 解释器；本技能会据此用 `"$PY" "$SK/xxx.py"` 的形式调用脚本。
-
-### Codex
-
-```bash
-python build.py --install codex
-```
-
-或手动拷贝：
-
-```bash
-cp -r dist/codex/schematic-reviewer ~/.codex/skills/
-```
-
-## 规范符合性
-
-产物按 Agent Skills 规范组织（参考 anthropics/skills 的 skill-creator 与官方 best-practices）：
-
-| 要求 | 本仓库的做法 |
-|---|---|
-| `SKILL.md` 必填 `name` + `description` | 都有；`name` 为小写连字符，`description` 单行、第三人称、含“做什么 + 何时触发” |
-| `description` 不得含尖括号、≤1024 字符 | 不用 YAML 的 `>-` 折叠标量（那个 `>` 会被朴素校验器判成尖括号），写成语义等价的单行标量 |
-| 目录只放 `SKILL.md` + `scripts/` + `references/`（+ 功能性 `tests/`） | 是；不放 `README.md` 之类附属文档，给人看的说明放在 `docs/` |
-| `SKILL.md` 正文 ≤ 500 行 | 是（约 285 行） |
-| 渐进披露：细节放 `references/`，只被 `SKILL.md` 直接引用（引用深度 ≤ 1 层） | 是；`references/` 之间不互相链接 |
-| 长参考文件（>100 行）带目录 | 是 |
-| 把会失败的点单独收敛成 Gotchas 章节 | 是，见 `SKILL.md` 的「Gotchas（踩过的坑）」 |
-| 确定的计算下沉到脚本，不让模型现推 | 是；载流计算、参数比对、解析全部走 `scripts/` |
-
-`description` 不用 `>-` 是一个容易踩的点：WorkBuddy 自带的 `quick_validate.py` 会报
-`Description cannot contain angle brackets`，即使内容里根本没有尖括号——它把 YAML 折叠标量的
-`>` 当成了尖括号。写成单行标量两边都干净。
 
 ## 使用步骤（嘉立创 EDA 导出网表 → 让 AI 检查）
 
@@ -158,14 +78,8 @@ python tests/test_parse_schematic_export.py
 python tests/test_parse_tel_netlist.py
 ```
 
-23 项回归测试全部通过即脚本正常。也可以在构建后校验产物：
-
-```bash
-python build.py --check             # 模板渲染校验（残留标记/未定义占位符会直接报错）
-```
-
-`test_lcsc_lookup.py` 与 `review_export.py` 的批量核验需要访问 `jlcpcb.com`；
-离线环境下这部分用例会跳过或报网络错误，其余用例不受影响。
+23 项回归测试全部通过即脚本正常。`test_lcsc_lookup.py` 与 `review_export.py` 的批量核验需要访问
+`jlcpcb.com`；离线环境下这部分用例会跳过或报网络错误，其余用例不受影响。
 
 ## 环境要求
 
